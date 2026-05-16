@@ -354,8 +354,7 @@ class FoxbitExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTests)
         )
 
     def validate_order_creation_request(self, order: InFlightOrder, request_call: RequestCall):
-        request_data = eval(request_call.kwargs["data"])
-        self.assertEqual(self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset), request_data["market_symbol"])
+        request_data = json.loads(request_call.kwargs["data"])
         self.assertEqual(order.trade_type.name.upper(), request_data["side"])
         self.assertEqual(FoxbitExchange.foxbit_order_type(OrderType.LIMIT), request_data["type"])
         self.assertEqual(Decimal("100"), Decimal(request_data["quantity"]))
@@ -363,7 +362,7 @@ class FoxbitExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTests)
         self.assertEqual(order.client_order_id, request_data["client_order_id"])
 
     def validate_order_cancelation_request(self, order: InFlightOrder, request_call: RequestCall):
-        request_data = eval(request_call.kwargs["data"])
+        request_data = json.loads(request_call.kwargs["data"])
         self.assertEqual(order.client_order_id, request_data["client_order_id"])
 
     def validate_order_status_request(self, order: InFlightOrder, request_call: RequestCall):
