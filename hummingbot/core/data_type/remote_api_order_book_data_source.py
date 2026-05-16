@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import io
 import logging
 import pickle
 import time
@@ -17,6 +18,32 @@ from hummingbot.connector.exchange.binance.binance_order_book import BinanceOrde
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.core.data_type.order_book_tracker_entry import OrderBookTrackerEntry
 from hummingbot.logger import HummingbotLogger
+
+
+class _SafeOrderBookUnpickler(pickle.Unpickler):
+    """Restricted unpickler that only allows numpy and pandas classes for order book data.
+
+    This prevents arbitrary code execution via pickle.loads() on untrusted remote data
+    by raising UnpicklingError for any class outside the numpy/pandas/builtins modules.
+    """
+
+    _SAFE_BUILTINS = frozenset({
+        "list", "tuple", "dict", "set", "frozenset",
+        "str", "bytes", "bytearray",
+        "int", "float", "bool", "complex",
+        "slice", "range", "object", "type",
+    })
+
+    def find_class(self, module: str, name: str):
+        # Allow all numpy and pandas internal classes (needed for ndarray/DataFrame reconstruction)
+        if module.startswith("numpy") or module.startswith("pandas"):
+            return super().find_class(module, name)
+        # Allow a restricted subset of Python built-ins (no eval/exec/open/import)
+        if module == "builtins" and name in self._SAFE_BUILTINS:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(
+            f"Unpickling of {module}.{name} is not permitted for security reasons."
+        )
 
 
 class RemoteAPIOrderBookDataSource(OrderBookTrackerDataSource):
@@ -62,7 +89,9 @@ class RemoteAPIOrderBookDataSource(OrderBookTrackerDataSource):
             raise EnvironmentError(f"Error fetching order book tracker snapshot from {self.SNAPSHOT_REST_URL}.")
 
         binary_data: bytes = await response.read()
-        order_book_tracker_data: Dict[str, Tuple[pd.DataFrame, pd.DataFrame]] = pickle.loads(binary_data)
+        order_book_tracker_data: Dict[str, Tuple[pd.DataFrame, pd.DataFrame]] = (
+            _SafeOrderBookUnpickler(io.BytesIO(binary_data)).load()
+        )
         retval: Dict[str, OrderBookTrackerEntry] = {}
 
         for trading_pair, (bids_df, asks_df) in order_book_tracker_data.items():
